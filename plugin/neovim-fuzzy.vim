@@ -32,9 +32,9 @@ endif
 
 if !exists("g:fuzzy_rootcmds")
   let g:fuzzy_rootcmds = [
-  \ ["git", "rev-parse", "--show-toplevel"],
-  \ ["hg", "root"]
-  \ ]
+        \ ["git", "rev-parse", "--show-toplevel"],
+        \ ["hg", "root"]
+        \ ]
 endif
 
 if !exists("g:fuzzy_hidden")
@@ -42,11 +42,11 @@ if !exists("g:fuzzy_hidden")
 endif
 
 let g:fuzzy_splitcmd_map = {
-  \ 'current' : 'edit',
-  \ 'vsplit'  : 'vsplit',
-  \ 'split'   : 'split',
-  \ 'tab'     : 'tabe'
-  \ }
+      \ 'current' : 'edit',
+      \ 'vsplit'  : 'vsplit',
+      \ 'split'   : 'split',
+      \ 'tab'     : 'tabe'
+      \ }
 
 if g:fuzzy_bindkeys
   autocmd FileType fuzzy tnoremap <silent> <buffer> <Esc> <C-\><C-n>:FuzzyKill<CR>
@@ -80,8 +80,8 @@ endfunction
 
 function! s:fuzzy_err_noexec()
   throw "Fuzzy: no search executable was found. " .
-      \ "Please make sure either '" .  s:ag.path .
-      \ "' or '" . s:rg.path . "' are in your path"
+        \ "Please make sure either '" .  s:ag.path .
+        \ "' or '" . s:rg.path . "' are in your path"
 endfunction
 
 " Methods to be replaced by an actual implementation.
@@ -123,15 +123,31 @@ endfunction
 function! s:rg.find_contents(query) dict
   let query = empty(a:query) ? '.' : shellescape(a:query)
   return systemlist([
-  	\ s:rg.path, "-n", "--no-heading", "--color", "never", "-S", query
-  	\ ] + (g:fuzzy_hidden ? ["--hidden"] : []))
+        \ s:rg.path, "-n", "--no-heading", "--color", "never", "-S", query
+        \ ] + (g:fuzzy_hidden ? ["--hidden"] : []))
 endfunction
 
 function! s:rg.find_todo() dict
   return systemlist([
-    \ s:rg.path, "-n", "--no-heading", "--color", "never", "TODO|FIXME"
-    \ ])
+        \ s:rg.path, "-n", "--no-heading", "--color", "never", "TODO|FIXME"
+        \ ])
 endfunction
+
+" Finding directories using rg
+function! s:rg.find_dirs(root) dict
+  return systemlist([
+        \ s:rg.path, "--color", "never", "--type", "d"
+        \ ] + (g:fuzzy_hidden ? ["--hidden"] : []) + (empty(a:root) ? [] : [a:root]))
+endfunction
+
+" Finding directories using ag (assuming ag supports a similar feature)
+function! s:ag.find_dirs(root) dict
+  " Replace with an appropriate command if ag supports directory listing
+  return systemlist([
+        \ s:ag.path, "--silent", "--nocolor", "--directories"
+        \ ] + (g:fuzzy_hidden ? ["--hidden"] : []) + (empty(a:root) ? [] : [a:root]))
+endfunction
+
 
 " Set the finder based on available binaries.
 if executable(s:rg.path)
@@ -142,6 +158,7 @@ endif
 
 command! -nargs=? FuzzyGrep              call s:fuzzy_grep(<q-args>)
 command! -nargs=? FuzzyOpen              call s:fuzzy_open(<q-args>)
+command! -nargs=? FuzzyOpenDir              call s:fuzzy_open_dir(<q-args>)
 command!          FuzzyOpenFileInTab     call s:fuzzy_split('tab')
 command!          FuzzyOpenFileInSplit   call s:fuzzy_split('split')
 command!          FuzzyOpenFileInVSplit  call s:fuzzy_split('vsplit')
@@ -201,17 +218,42 @@ function! s:fuzzy_grep(str) abort
   return s:fuzzy(contents, opts)
 endfunction
 
+
+" New command function for opening directories
+function! s:fuzzy_open_dir(root) abort
+  let root = empty(a:root) ? s:fuzzy_getroot() : a:root
+  exe 'lcd' root
+
+  " Get list of directories
+  try
+    let dirs = s:fuzzy_source.find_dirs(root)
+  catch
+    echoerr v:exception
+    return
+  finally
+    lcd -
+  endtry
+
+  let opts = { 'lines': g:fuzzy_winheight, 'statusfmt': 'FuzzyOpenDir %s (%d directories)', 'root': root }
+  function! opts.handler(result)
+    return { 'name': join(a:result) }
+  endfunction
+
+  return s:fuzzy(dirs, opts)
+endfunction
+
+
 function! s:fuzzy_open(root) abort
   let root = empty(a:root) ? s:fuzzy_getroot() : a:root
   exe 'lcd' root
 
   " Get open buffers.
   let bufs = filter(range(1, bufnr('$')),
-    \ 'buflisted(v:val) && !empty(bufname(v:val))')
+        \ 'buflisted(v:val) && !empty(bufname(v:val))')
 
   " Filter open buffers out.
   let bufs = filter(range(1, bufnr('$')),
-    \ 'bufnr("%") != v:val && bufnr("#") != v:val')
+        \ 'bufnr("%") != v:val && bufnr("#") != v:val')
 
   " Get the full buffer name if possible.
   let bufs = map(bufs, 'expand(bufname(v:val))')
@@ -221,115 +263,115 @@ function! s:fuzzy_open(root) abort
     let altbufname = expand(bufname('#'))
     if !empty(altbufname) && buflisted(altbufname)
       call insert(bufs, altbufname)
-    end
-  endif
+      end
+    endif
 
-  " Save a list of files the find command should ignore.
-  let ignorelist = !empty(bufname('%')) ? bufs + [expand(bufname('%'))] : bufs
+    " Save a list of files the find command should ignore.
+    let ignorelist = !empty(bufname('%')) ? bufs + [expand(bufname('%'))] : bufs
 
-  " Get all files, minus the open buffers.
-  try
-    let results = s:fuzzy_source.find([])
-    let files = filter(results, 'index(ignorelist, v:val) == -1')
-  catch
-    echoerr v:exception
-    return
-  finally
-    lcd -
-  endtry
+    " Get all files, minus the open buffers.
+    try
+      let results = s:fuzzy_source.find([])
+      let files = filter(results, 'index(ignorelist, v:val) == -1')
+    catch
+      echoerr v:exception
+      return
+    finally
+      lcd -
+    endtry
 
-  " Put it all together.
-  let result = bufs + files
+    " Put it all together.
+    let result = bufs + files
 
-  let opts = { 'lines': g:fuzzy_winheight, 'statusfmt': 'FuzzyOpen %s (%d files)', 'root': root }
-  function! opts.handler(result)
-    return { 'name': join(a:result) }
+    let opts = { 'lines': g:fuzzy_winheight, 'statusfmt': 'FuzzyOpen %s (%d files)', 'root': root }
+    function! opts.handler(result)
+      return { 'name': join(a:result) }
+    endfunction
+
+    return s:fuzzy(result, opts)
   endfunction
 
-  return s:fuzzy(result, opts)
-endfunction
+  function! s:fuzzy(choices, opts) abort
+    let inputs = tempname()
+    let outputs = tempname()
 
-function! s:fuzzy(choices, opts) abort
-  let inputs = tempname()
-  let outputs = tempname()
-
-  if !executable(g:fuzzy_executable)
-    echoerr "Fuzzy: the executable '" . g:fuzzy_executable . "' was not found in your path"
-    return
-  endif
-
-  " Clear the command line.
-  echo
-
-  call writefile(a:choices, inputs)
-
-  let command = g:fuzzy_executable . " -l " . a:opts.lines . " > " . outputs . " < " . inputs
-  let opts = { 'outputs': outputs, 'handler': a:opts.handler, 'root': a:opts.root }
-
-  function! opts.on_exit(id, code, _event) abort
-    " NOTE: The order of these operations is important: Doing the delete first
-    " would leave an empty buffer in netrw. Doing the resize first would break
-    " the height of other splits below it.
-    call win_gotoid(s:fuzzy_prev_window)
-    exe 'silent' 'bdelete!' s:fuzzy_bufnr
-    exe 'resize' s:fuzzy_prev_window_height
-
-    if a:code != 0 || !filereadable(self.outputs)
+    if !executable(g:fuzzy_executable)
+      echoerr "Fuzzy: the executable '" . g:fuzzy_executable . "' was not found in your path"
       return
     endif
 
-    let results = readfile(self.outputs)
-    if !empty(results)
-      for result in results
-        let file = self.handler([result])
-        exe 'lcd' self.root
+    " Clear the command line.
+    echo
 
-        if s:fuzzy_selected_opencmd == ''
-          let s:fuzzy_selected_opencmd = g:fuzzy_opencmd
-        endif
+    call writefile(a:choices, inputs)
 
-        silent execute s:fuzzy_selected_opencmd . ' ' . fnameescape(expand(file.name))
+    let command = g:fuzzy_executable . " -l " . a:opts.lines . " > " . outputs . " < " . inputs
+    let opts = { 'outputs': outputs, 'handler': a:opts.handler, 'root': a:opts.root }
 
-        lcd -
-        if has_key(file, 'lnum')
-          silent execute file.lnum
-          normal! zz
-        endif
-      endfor
+    function! opts.on_exit(id, code, _event) abort
+      " NOTE: The order of these operations is important: Doing the delete first
+      " would leave an empty buffer in netrw. Doing the resize first would break
+      " the height of other splits below it.
+      call win_gotoid(s:fuzzy_prev_window)
+      exe 'silent' 'bdelete!' s:fuzzy_bufnr
+      exe 'resize' s:fuzzy_prev_window_height
+
+      if a:code != 0 || !filereadable(self.outputs)
+        return
+      endif
+
+      let results = readfile(self.outputs)
+      if !empty(results)
+        for result in results
+          let file = self.handler([result])
+          exe 'lcd' self.root
+
+          if s:fuzzy_selected_opencmd == ''
+            let s:fuzzy_selected_opencmd = g:fuzzy_opencmd
+          endif
+
+          silent execute s:fuzzy_selected_opencmd . ' ' . fnameescape(expand(file.name))
+
+          lcd -
+          if has_key(file, 'lnum')
+            silent execute file.lnum
+            normal! zz
+          endif
+        endfor
+      endif
+    endfunction
+
+    let s:fuzzy_prev_window = win_getid()
+    let s:fuzzy_prev_window_height = winheight('%')
+
+    if bufnr(s:fuzzy_bufnr) > 0
+      exe 'keepalt' g:fuzzy_bufferpos a:opts.lines . 'sp' bufname(s:fuzzy_bufnr)
+    else
+      exe 'keepalt' g:fuzzy_bufferpos a:opts.lines . 'new'
+      let s:fuzzy_selected_opencmd = ""
+      let s:fuzzy_job_id = termopen(command, opts)
+      let b:fuzzy_status = printf(
+            \ a:opts.statusfmt,
+            \ fnamemodify(opts.root, ':~:.'),
+            \ len(a:choices))
+      setlocal statusline=%{b:fuzzy_status}
+      set norelativenumber
+      set nonumber
+      set nospell
     endif
+    let s:fuzzy_bufnr = bufnr('%')
+    set filetype=fuzzy
+    startinsert
   endfunction
 
-  let s:fuzzy_prev_window = win_getid()
-  let s:fuzzy_prev_window_height = winheight('%')
-
-  if bufnr(s:fuzzy_bufnr) > 0
-    exe 'keepalt' g:fuzzy_bufferpos a:opts.lines . 'sp' bufname(s:fuzzy_bufnr)
-  else
-    exe 'keepalt' g:fuzzy_bufferpos a:opts.lines . 'new'
-    let s:fuzzy_selected_opencmd = ""
-    let s:fuzzy_job_id = termopen(command, opts)
-    let b:fuzzy_status = printf(
-      \ a:opts.statusfmt,
-      \ fnamemodify(opts.root, ':~:.'),
-      \ len(a:choices))
-    setlocal statusline=%{b:fuzzy_status}
-    set norelativenumber
-    set nonumber
-    set nospell
-  endif
-  let s:fuzzy_bufnr = bufnr('%')
-  set filetype=fuzzy
-  startinsert
-endfunction
-
-function! s:fuzzy_split(split)
-  let cmd = get(g:fuzzy_splitcmd_map, a:split, '')
-  if cmd != ''
-    let s:fuzzy_selected_opencmd = cmd
-    if exists('*chansend')
-      call chansend(s:fuzzy_job_id, "\r\n")
-    else
-      call jobsend(s:fuzzy_job_id, "\r\n")
+  function! s:fuzzy_split(split)
+    let cmd = get(g:fuzzy_splitcmd_map, a:split, '')
+    if cmd != ''
+      let s:fuzzy_selected_opencmd = cmd
+      if exists('*chansend')
+        call chansend(s:fuzzy_job_id, "\r\n")
+      else
+        call jobsend(s:fuzzy_job_id, "\r\n")
+      endif
     endif
-  endif
-endfunction
+  endfunction
