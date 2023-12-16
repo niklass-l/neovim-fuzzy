@@ -133,19 +133,15 @@ function! s:rg.find_todo() dict
         \ ])
 endfunction
 
-" Finding directories using rg
-function! s:rg.find_dirs(root) dict
-  return systemlist([
-        \ s:rg.path, "--color", "never", "--type", "d"
-        \ ] + (g:fuzzy_hidden ? ["--hidden"] : []) + (empty(a:root) ? [] : [a:root]))
-endfunction
 
-" Finding directories using ag (assuming ag supports a similar feature)
-function! s:ag.find_dirs(root) dict
-  " Replace with an appropriate command if ag supports directory listing
-  return systemlist([
-        \ s:ag.path, "--silent", "--nocolor", "--directories"
-        \ ] + (g:fuzzy_hidden ? ["--hidden"] : []) + (empty(a:root) ? [] : [a:root]))
+function! s:rg.find_dirs(root, maxdepth) dict
+  let find_command = 'find ' . a:root . ' -type d'
+  if a:maxdepth != ''
+    let find_command .= ' -maxdepth ' . a:maxdepth
+  endif
+
+  let dir_list = systemlist(find_command)
+  return dir_list
 endfunction
 
 
@@ -158,7 +154,8 @@ endif
 
 command! -nargs=? FuzzyGrep              call s:fuzzy_grep(<q-args>)
 command! -nargs=? FuzzyOpen              call s:fuzzy_open(<q-args>)
-command! -nargs=? FuzzyOpenDir              call s:fuzzy_open_dir(<q-args>)
+command! -nargs=* FuzzyOpenDir call s:fuzzy_open_dir(<f-args>)
+command! -nargs=* FuzzyOpenWorkingDir call s:fuzzy_open_working_dir(<f-args>)
 command!          FuzzyOpenFileInTab     call s:fuzzy_split('tab')
 command!          FuzzyOpenFileInSplit   call s:fuzzy_split('split')
 command!          FuzzyOpenFileInVSplit  call s:fuzzy_split('vsplit')
@@ -218,15 +215,16 @@ function! s:fuzzy_grep(str) abort
   return s:fuzzy(contents, opts)
 endfunction
 
-
-" New command function for opening directories
-function! s:fuzzy_open_dir(root) abort
+function! s:fuzzy_open_dir(root, ...) abort
   let root = empty(a:root) ? s:fuzzy_getroot() : a:root
+  let maxdepth = a:0 > 1 ? a:1 : ''  " Default maxdepth is empty (no limit)
+  let show_hidden = a:0 > 2 ? a:2 : g:fuzzy_hidden  " Use global hidden setting as default
+
   exe 'lcd' root
 
   " Get list of directories
   try
-    let dirs = s:fuzzy_source.find_dirs(root)
+    let dirs = s:rg.find_dirs(root, maxdepth, show_hidden)
   catch
     echoerr v:exception
     return
@@ -242,6 +240,31 @@ function! s:fuzzy_open_dir(root) abort
   return s:fuzzy(dirs, opts)
 endfunction
 
+
+" New function for opening working directory
+function! s:fuzzy_open_working_dir(root, ...) abort
+  let root = empty(a:root) ? s:fuzzy_getroot() : a:root
+  let maxdepth = a:0 > 0 ? a:1 : ''  " Default maxdepth is empty (no limit)
+
+  " Get list of directories
+  try
+    let dirs = s:rg.find_dirs(root, maxdepth)
+  catch
+    echoerr v:exception
+    return
+  endtry
+
+  " Options with custom handler
+  let opts = { 'lines': g:fuzzy_winheight, 'statusfmt': 'FuzzyOpenWorkingDir %s (%d directories)', 'root': root }
+  function! opts.handler(result) abort
+    let dir = join(a:result)
+    exe 'cd ' . fnameescape(dir)
+    exe 'normal! :bd!<CR>'
+    return { 'name': dir }
+  endfunction
+
+  return s:fuzzy(dirs, opts)
+endfunction
 
 function! s:fuzzy_open(root) abort
   let root = empty(a:root) ? s:fuzzy_getroot() : a:root
